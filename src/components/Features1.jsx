@@ -57,14 +57,14 @@ export const Features1 = () => {
           <div className="w-3/4 mx-auto lg:w-1/2 flex flex-wrap lg:-mx-4 sm:pr-8 lg:pt-10 justify-center lg:pl-4 xl:px-8">
             <div className="mb-4 py-3 md:pl-3 md:pr-20 lg:pr-12 rounded">
               <img
-                src={remote_vscode}
+                src={remote_vscode.src}
                 alt="vscode remote development"
                 // className="rounded-xl  custom-border-gray mx-auto sm:mx-unset"
               />
             </div>
             <div className="py-3 md:pl-20 lg:pl-12 md:pr-2 rounded ">
               <img
-                src={rcargo_cli}
+                src={rcargo_cli.src}
                 alt="rcargo cli"
                 // className="rounded-xl  custom-border-gray mx-auto sm:mx-unset"
               />
