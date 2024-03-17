@@ -1,22 +1,36 @@
 /* Typography */
 
+/* unused currently */
 .custom-block-title {
   @apply text-white text-3xl font-bold tracking-normal;
 }
-.custom-block-big-title {
+/* h2 */
+.custom-block-big-title { 
   @apply text-white text-4xl xl:text-5xl font-bold tracking-normal;
 }
+/* Little text above headers e.g. "Try us out!" */
 .custom-block-subtitle {
   @apply text-xs text-customSecondary  tracking-wider font-bold uppercase;
 }
+/* FAQ Box Title */
 .custom-content-title {
   @apply text-white text-lg font-bold tracking-normal;
 }
+/* unused currently */
 .custom-content-text-white {
   @apply text-white text-base leading-relaxed;
 }
+/* unused currently */
 .custom-content-text-gray {
   @apply text-gray-400 text-base;
+}
+
+/* Ordered List */
+ol li {
+  list-style-type: decimal;
+  list-style-position: outside;
+  margin-left: 2rem;
+  padding: 0.25rem;
 }
 
 /* Backgrounds */
@@ -30,9 +44,12 @@
 .custom-bg-dark3 {
   @apply bg-customDarkBg3  fill-customDarkBg3;
 }
-body,
+/* body,
 html {
   @apply bg-customDarkBg2;
+} */
+body {
+  font-family: Inter, sans-serif;
 }
 
 /* Borders */

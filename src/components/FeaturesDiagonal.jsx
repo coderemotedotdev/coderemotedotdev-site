@@ -42,7 +42,7 @@ export const FeaturesDiagonal = () => {
             </p>
             <a
               className="w-[210px] h-12 custom-button-colored mr-10 "
-              href="#signup"
+              href="/#signup"
             >
               Get Started
             </a>

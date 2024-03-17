@@ -28,17 +28,21 @@ const footerData = [
   },
 ];
 
-export const Footer = () => {
+const defaultProps = {
+  license: "MIT License"
+}
+
+export const Footer = ({license = defaultProps.license}) => {
   return (
     <footer>
-      <div className="pt-10  lg:pt-20 lg:pb-12 bg-customDarkBg1 radius-for-skewed ">
+      <div className="pt-10  lg:pt-10 lg:pb-10 bg-customDarkBg1 radius-for-skewed ">
         <div className="container mx-auto px-4 w-4/5 md:w-11/12 lg:w-10/12 xl:w-4/5 2xl:w-2/3">
           <div className="flex flex-wrap  ">
             <div className="w-full lg:w-1/3 mb-16 lg:mb-0">
               <div className="flex justify-center lg:justify-start items-center grow basis-0">
-                <div className="text-white mr-2 text-6xl">
-                  <CodeRemoteLengthwiseLogo w="180" h="180" />
-                </div>
+                <a className="text-white mr-2 text-6xl" href="/#home" aria-label="CodeRemote Home">
+                  <CodeRemoteLengthwiseLogo w="180" />
+                </a>
                 {/* <div className="text-white font-['Inter'] font-bold text-xl">
                   CodeRemote
                 </div> */}
@@ -140,7 +144,7 @@ export const Footer = () => {
             </div>
           </div>
           <p className="lg:text-center text-sm text-gray-400 border-t border-[rgb(255,255,255,0.2)] pt-8 mt-0 hidden lg:block">
-            &copy; 2024. MIT license.
+            &copy; {new Date().getFullYear()} CodeRemote. {license}.
           </p>
         </div>
       </div>

@@ -26,11 +26,11 @@ const FAQData = [
         <br/><br/>
 
         <ol>
-          <li>1. <b>We focus on Rust and incremental builds:</b> Our hardware and our compiler is optimized for building Rust fast. Other CDEs try to be language agnostic and focus instead of general containerization scaling, which is a poor solution for Rust's compile (and development) time slowness.</li>
+          <li><b>We focus on Rust and incremental builds:</b> Our hardware and our compiler is optimized for building Rust fast. Other CDEs try to be language agnostic and focus instead of general containerization scaling, which is a poor solution for Rust's compile (and development) time slowness.</li>
           <br/>
-          <li>2. <b>We target daily usage for core devs, not onboarding new contributors:</b> Most CDEs focus on onboarding new developers or open-source contributors by quickly spinning up a container. But that provides little value for core devs who contribute daily. CodeRemote aims to provide those core devs an experience superior to local development.</li>
+          <li><b>We target daily usage for core devs, not onboarding new contributors:</b> Most CDEs focus on onboarding new developers or open-source contributors by quickly spinning up a container. But that provides little value for core devs who contribute daily. CodeRemote aims to provide those core devs an experience superior to local development.</li>
           <br/>
-          <li>3. <b>We use hardware suited for Rust development, with monthly pricing:</b> Rust is a resource-hungry beast. Gitpod Cloud caps out at an insufficient 8 cores / 16 GB RAM. GitHub Codespaces charges you $1,000 per month for 4 developers ($1.44 per dev-hour) for 16 cores. We specialize in heavier-duty hardware and sane monthly pricing.</li>
+          <li><b>We use hardware suited for Rust development, with monthly pricing:</b> Rust is a resource-hungry beast. Gitpod Cloud caps out at an insufficient 8 cores / 16 GB RAM. GitHub Codespaces charges you $1,000 per month for 4 developers ($1.44 per dev-hour) for 16 cores. We specialize in heavier-duty hardware and sane monthly pricing.</li>
         </ol>
       </div>,
   },

@@ -1,23 +1,57 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { CodeRemoteLengthwiseLogo } from "../assets/logos/CodeRemoteLengthwiseLogo";
 import { GithubIcon } from "../assets/icons/GithubIcon";
 
 const navbarLinks = [
-  { label: "Home", href: "#home", ariaLabel: "Home", hidden: false },
-  { label: "Features", href: "#features", ariaLabel: "Features", hidden: false },
+  { label: "Home", href: "/#home", ariaLabel: "Home", hidden: false },
+  {
+    label: "Features",
+    href: "/#features",
+    ariaLabel: "Features",
+    hidden: false,
+  },
   // { label: "Pricing", href: "#pricing", ariaLabel: "Pricing" },
   // { label: "Feedback", href: "#feedback", ariaLabel: "Feedback" },
-  { label: "Sign Up", href: "#signup", ariaLabel: "Sign Up", hidden: true },
-  { label: "FAQ", href: "#faq", ariaLabel: "FAQ", hidden: false },
+  { label: "Sign Up", href: "/#signup", ariaLabel: "Sign Up", hidden: true },
+  { label: "FAQ", href: "/#faq", ariaLabel: "FAQ", hidden: false },
+  { label: "Blog", href: "/blog", ariaLabel: "Blog", hidden: false },
 ];
 
-export const Navbar = () => {
+const defaultProps = {
+  isFixed: true, // sticky i.e. pinned to top
+  navbarFixBeyondPctScrollHeight: null, // if you scroll past this percentage of scroll height, the Navbar becomes fixed
+};
+
+export const Navbar = ({
+  isFixed = defaultProps.isFixed,
+  navbarFixBeyondPctScrollHeight = defaultProps.navbarFixBeyondPctScrollHeight,
+}) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [isNavbarFixed, setIsNavbarFixed] = useState(isFixed);
+  const handleScroll = () => {
+    const scrollYThreshold = navbarFixBeyondPctScrollHeight * document.documentElement.scrollHeight / 100;
+    setIsNavbarFixed(
+      isFixed || (navbarFixBeyondPctScrollHeight != null && window.scrollY >= scrollYThreshold)
+    );
+    // console.log(window.scrollY, scrollYThreshold);
+  };
+
+  useEffect(() => {
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, []);
+
+  const outerClassName = `w-full h-20 flex flex-col justify-center items-center ${
+    isNavbarFixed ? "fixed" : ""
+  } bg-customDarkBg1 lg:bg-customDarkBgTransparent z-40 lg:backdrop-blur-xl`;
 
   return (
-    <nav className="w-full h-20 flex flex-col justify-center items-center fixed bg-customDarkBg1 lg:bg-customDarkBgTransparent z-40 lg:backdrop-blur-xl">
+    <nav className={outerClassName}>
       <div className="2xl:w-[1280px] xl:w-10/12 w-11/12 flex justify-between items-center relative">
         <motion.div
           initial={{ opacity: 0 }}
@@ -25,7 +59,7 @@ export const Navbar = () => {
           transition={{ duration: 0.3 }}
           exit={{ opacity: 0 }}
         >
-          <a className="navbar-link" href="#home" aria-label="Home">
+          <a className="navbar-link" href="/#home" aria-label="Home">
             <div className="flex justify-start items-center grow basis-0">
               <div className="text-white mr-2 text-6xl">
                 <CodeRemoteLengthwiseLogo />
@@ -66,17 +100,17 @@ export const Navbar = () => {
             <a
               className="text-white custom-border-gray rounded-xl
            bg-customDarkBg2 hover:bg-customDarkBg3  border-gray-700 pl-6 pr-8 pt-2 pb-2 text-sm flex"
-           href="https://github.com/coderemotedotdev/rustc-profiles"
+              href="https://github.com/coderemotedotdev/rustc-profiles"
               target="_blank"
-              aria-label="source code"
+              aria-label="rustc performance profiles"
             >
               <GithubIcon />
-              <span className="pt-px">Our custom, faster rustc</span>
+              <span className="pt-1">Our custom, faster rustc</span>
             </a>
           </div>
         </motion.div>
         <div
-          className="lg:hidden flex flex-col  px-2 py-3 border-solid border border-gray-600 rounded-md cursor-pointer hover:bg-customDarkBg2"
+          className="lg:hidden flex flex-col px-2 py-3 border-solid border border-gray-600 rounded-md cursor-pointer hover:bg-customDarkBg2"
           onClick={() => setIsOpen(!isOpen)}
         >
           <div className="w-5 h-0.5 bg-gray-500  mb-1"></div>
@@ -117,7 +151,7 @@ export const Navbar = () => {
                 target="_blank"
               >
                 <GithubIcon />
-                Our custom, faster rustc
+                <span className="pt-1">Our custom, faster rustc</span>
               </a>
             </div>
           </motion.div>
