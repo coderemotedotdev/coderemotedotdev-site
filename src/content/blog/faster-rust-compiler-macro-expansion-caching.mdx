@@ -32,7 +32,7 @@ Now say you already did a clean build, changed a couple lines, and then re-compi
 
 **The bad news:** These options are of limited help with respect to incremental build times.
   - Options 1 - 4 above optimize code generation. If you are building an executable (via `cargo build`), these can help! Most developers (including myself), however, just want to know if their code *can compile* (i.e. `cargo check` or `cargo clippy`) while coding. They are not interested in producing an executable, and thus codegen optimizations are of zero help.
-  - Option 5 brings us intraprocess parallelization. It can significantly speed up clean dev builds[^parallel-frontend] -- provided of course that your machine has that enough CPU and memory. That said, personally I have noticed negligible improvement in incremental builds because the parallelized 'analysis' phase is far shorter than that in clean builds.
+  - Option 5 brings intraprocess parallelization. It can significantly speed up clean dev builds[^parallel-frontend] -- provided of course that your machine has that enough CPU and memory. That said, personally I have noticed negligible improvement in incremental builds because the parallelized 'analysis' phase is far shorter than that in clean builds.
   - Option 6 introduces an interesting premise: expanding procedural macros is slow! This solution comes at a tangible cost though, as a release build of a procedural macro crate is considerably slower than a dev build.
 
 [^corrode-blog]: https://corrode.dev/blog/tips-for-faster-rust-compile-times
@@ -77,16 +77,16 @@ I evaluated (and ultimately abandoned) a few approaches:
 3. Cache the AST and "push" changes: Assuming small edits between builds, the AST (Abstract Syntax Tree) that represents a crate changes very slightly. Nevertheless, the compiler currently lexes and parses and expands from scratch.[^technical-macro-exp] My vague idea here was to cache the AST from the last run, identify the code changes in the new version, and push those AST changes to the previous crate's AST. This felt like it was on the right track but the devil is in the details:
     - How would I represent "code changes"?
     - What if the new AST is vastly different from the old one?
-    - Are parsing and lexing even time-consuming i.e. do we benefit from caching them?
+    - Are parsing and lexing even time-consuming i.e. is there any benefit from caching them?
 </details>
 
 [^watt]: David Tolnay is the author of Watt. See more details [here](https://github.com/dtolnay/watt). 
 [^technical-macro-exp]: During macro expansion, a macro transforms an input AST into an output AST. This AST is then inserted into the crate's larger AST.
 
 #### Caching procedural macro expansion
-Finally, I landed at caching procedural macro expansion. The core idea is simple. Procedural macros take as input a `TokenStream` (representing an AST) and output another `TokenStream`. We cache this mapping from our current build; if the input is unchanged in our next build, we reuse that output instead of recomputing it.
+Finally, I landed at caching procedural macro expansion. The core idea is simple. Procedural macros take as input a `TokenStream` (representing an AST) and output another `TokenStream`. The compiler will cache this mapping from your current build; if the input is unchanged in your next build, it reuses that output instead of recomputing it.
 
-This is far superior to "using release builds of procedural macro crates" [mentioned before](#existing-compiler-options-offer-limited-help-with-incremental-build-times). For the vast majority of macros, instead of doing the same work faster, we are doing *zero work*.
+This is far superior to "using release builds of procedural macro crates" [mentioned before](#existing-compiler-options-offer-limited-help-with-incremental-build-times). For the vast majority of macros, instead of doing the same work faster, the compiler does *zero work*.
 
 ##### Side note: Side effects
 Rust's procedural macros are not necessarily deterministic "pure" functions.[^hn-side-effects] In other words, expanding the macro with the same input can yield a different output. The commonly used `include_bytes` macro, for example, reads the contents of a file. Even if the filename stays the same, its output will clearly change if the *contents* of that file change.
@@ -97,11 +97,11 @@ In practice, however, the vast majority of macros are in fact pure. This is the 
 [^hn-side-effects]: https://news.ycombinator.com/item?id=29302382
 
 ##### Augmenting the compiler
-We needed to augment the compiler in several ways to support macro expansion caching. In particular, we needed to be able to do the following:
+I needed to augment the compiler in several ways to support macro expansion caching. In particular, the compiler needed to be able to do the following:
   1. Skip pulling a macro from cache. As mentioned above, you may want to avoid caching some macro expansions in case they have side effects. I simply allow specifying these in an environment variable. In practice, I have yet to encounter a crate where I have needed to skip more than 3 macros.
-  2. Hash macro (bang, attribute, and derive) invocations. Our cache is a hashmap mapping invocation hashes to the expansions. As in the other areas of the compiler, we need to take care to use `StableHash`es, so that the hashes are consistent across runs. On this, we avoided hashing `span`s (which represent positions in code) where possible because ideally our cache remains valid even if a new line of code pushes the code below it down a line.
-  3. Handle edge cases: duplicate invocation hashes, interpolated tokens[^interpolated-tokens], and nested macros. All of these poses challenges to computing unique invocation hashes and consistent output ASTs. We typically flattened ASTs where possible and dropped un-cacheable ones where not.
-  4. Serialize macro output. Luckily, we were able to leverage a lot of the data structures in place for incremental builds downstream in the compiler. Still, we needed to spin our own serialization mechanism since we are newly caching `TokenStreams` and ASTs.
+  2. Hash macro (bang, attribute, and derive) invocations. The macro expansion cache is a hashmap, mapping invocation hashes to the expansions. As in the other areas of the compiler, I need to take care to use `StableHash`es, so that the hashes are consistent across runs. On this, I avoided hashing `span`s (which represent positions in code) where possible because ideally the cache remains valid even if a new line of code pushes the code below it down a line.
+  3. Handle edge cases: duplicate invocation hashes, interpolated tokens[^interpolated-tokens], and nested macros. All of these poses challenges to computing unique invocation hashes and consistent output ASTs. I typically flattened ASTs where possible and dropped un-cacheable ones where not.
+  4. Serialize macro output. Luckily, I was able to leverage a lot of the data structures in place for incremental builds downstream in the compiler. Still, I needed to spin my own serialization mechanism since I am newly caching `TokenStreams` and ASTs.
 
 [^interpolated-tokens]: Interpolated tokens are embedded AST nodes. The [source code](https://github.com/rust-lang/rust/blob/1.76.0/compiler/rustc_ast/src/token.rs#L317) itself deems them a "very strange" concept that the compiler team would "like to get rid of".
 
@@ -147,7 +147,7 @@ fn expand_macro_invoc(
     self.disk_cache.as_ref().and_then(|_| self.hash_item_no_spans(&invoc.kind));
   let expander = ext.get_macro();
   let tok_result: TokenStream = {
-    // 1. Perform lookup of the macro invocation hash in our new macro cache
+    // 1. Perform lookup of the macro invocation hash in the new macro cache
     if !self.should_skip_cache()
         && let Some(cached_stream) =
             self.disk_cache
@@ -177,16 +177,16 @@ I have profiled my modded compiler against the default compiler, on several real
 <a href="https://github.com/coderemotedotdev/rustc-profiles" target="_blank">rustc-profiles repo</a>.
 
  Below is a snapshot of those results (as of Mar 16, 2024).
-| Project      | speed up % | Default build time (incremental) | Modded build time (incremental) | Detailed analysis?
+| Project      | speed up % | Default build time | Modded build time | Detailed analysis?
 | ------------- | ------------- | ------------- | ------------- | ------------- |
 | <a href="https://hedgehog.app" target="_blank">hedgehog</a> | 40% | 19.3 s | 11.7 s | <a href="https://github.com/coderemotedotdev/rustc-profiles/tree/main/hedgehog" target="_blank">In rustc-profiles</a>
 | <a href="https://github.com/paritytech/polkadot-sdk" target="_blank">polkadot-sdk</a> | 35% | 30 s | 19 s | <a href="https://github.com/coderemotedotdev/rustc-profiles/tree/main/polkadot-sdk" target="_blank">In rustc-profiles</a>
 | <a href="https://github.com/SorellaLabs/brontes" target="_blank">brontes</a> | 25% | 10.7 s | 8.0 s | <a href="https://github.com/coderemotedotdev/rustc-profiles/tree/main/brontes" target="_blank">In rustc-profiles</a>
 |  <a href="https://github.com/graphprotocol/graph-node" target="_blank">graph-node</a> | 21% | 6.3 s | 5.0 s | <a href="https://github.com/coderemotedotdev/rustc-profiles/tree/main/graph-node" target="_blank">In rustc-profiles</a>
-|  <a href="https://github.com/vectordotdev/vector" target="_blank">vector</a> | 11% | 18.4 s | 16.4 s | <a href="https://github.com/vectordotdev/vector/discussions/19930" target="_blank">In vector's GitHub discussion</a>
+|  <a href="https://github.com/vectordotdev/vector" target="_blank">vector</a> | 11% | 18.4 s | 16.4 s | <a href="https://github.com/vectordotdev/vector/discussions/19930" target="_blank">In vector GitHub</a>
 
 #### Proof by picture
-As you can see in this `rustc` profile, we are expanding only the procedural macros that we modified. 
+As you can see in this `rustc` profile, my modded compiler expands only the procedural macros that were modified. 
 ![Rustc optimization one-pager](/rustc_optimization_onepager.png)
 You can find the full-sized PDF [here](https://github.com/coderemotedotdev/rustc-profiles/blob/main/hedgehog/hedgehog_compiler_comparison_report.pdf).
 
@@ -200,12 +200,11 @@ Now, I love sword fights on swivel chairs as much as the next guy ...
   <div class="column">
     <img src={"https://imgs.xkcd.com/comics/compiling.png"} alt="Image alt" />
   </div>
-  <div/>
   <div class="column">
     <div className="ml-embedded" data-form="6EiOYZ"></div>
   </div>
 </div>
 
-But if you want to return minutes of your life with every compile, check out what we're building at CodeRemote.
+But if you want to return minutes of your life with every compile, check out what I'm building at CodeRemote.
 
 ~ Kapil

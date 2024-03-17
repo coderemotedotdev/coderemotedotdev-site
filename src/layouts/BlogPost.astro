@@ -19,7 +19,6 @@ const { title, description, pubDate, updatedDate, heroImage, navbarFixBeyondPctS
 			main {
 				width: calc(100% - 1em);
 				max-width: 100%;
-				margin: 0;
 			}
 			.hero-image {
 				width: 100%;
@@ -45,6 +44,11 @@ const { title, description, pubDate, updatedDate, heroImage, navbarFixBeyondPctS
 			}
 			.last-updated-on {
 				font-style: italic;
+			}
+			@media (max-width: 720px) {
+				main {
+					width: 100%
+				}
 			}
 		</style>
 	</head>
