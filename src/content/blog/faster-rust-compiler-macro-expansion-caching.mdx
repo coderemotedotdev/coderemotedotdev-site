@@ -1,0 +1,211 @@
+---
+title: 'How I reduced (incremental) Rust compile times by up to 40%'
+description: 'Incremental Rust builds just became up to 40% faster ... with one new feature.'
+pubDate: 'Mar 16 2024'
+heroImage: '/faster_rust_compiler_macro_expansion_caching.gif'
+navbarFixBeyondPctScrollHeight: 64
+---
+
+At CodeRemote, I have forked and modified the Rust compiler, `rustc` itself. One feature -- caching procedural macro expansion -- has yielded 11-40% faster incremental build times in several real-life crates. That means faster dev builds and less laggy rust-analyzer (IDE IntelliSense).
+
+If you're a Rust compiler performance pro, feel free to [skip to what I did](#caching-macro-expansion-up-to-40-faster-rust-incremental-builds). Otherwise, keep reading for more context!
+
+## Rust compilation can be slow…
+There is a lot to like about the Rust language, but it’s a bit of a meme how frequent a complaint is compile time ... so much so that "I'm feeling lucky" drops you into this poor guy's support group:
+![Google top hits for Rust compile time](/rust_compile_time_google_search.png)
+
+While writing code, all developers want the shortest possible edit-compile-run cycle. Faster feedback = Higher productivity. While Go developers often take for granted their fast incremental builds, their Rust counterparts often take for granted their *slow* incremental builds -- developing more learned helplessness than code.
+
+#### Side note: What is an incremental build?
+Say you just downloaded a Rust codebase and compiled it. That is a "clean build" since the compiler had to process that code from scratch.
+
+Now say you already did a clean build, changed a couple lines, and then re-compiled. This is what I call an "incremental build". In a day, a developer can do hundreds of incremental builds (repeat this cycle: make a code edit, compile, and sometimes run/test). Seconds add up fast.
+
+### Existing compiler options offer limited help with incremental build times
+**The good news:** Rust offers many (often unstable) features that can optimize compiler behavior. Numerous blog posts[^corrode-blog] [^lattimore-blog] [^benw-blog] in just the past few months cite a laundry list of configurations to reduce Rust compile times:
+  1. Use the lld or mold linker
+  2. Use the Cranelift codegen backend
+  3. Build non-relocatable executables
+  4. Strip debug info
+  5. Enable the parallel frontend
+  6. Use release (optimized) builds for procedural macro crates
+
+**The bad news:** These options are of limited help with respect to incremental build times.
+  - Options 1 - 4 above optimize code generation. If you are building an executable (via `cargo build`), these can help! Most developers (including myself), however, just want to know if their code *can compile* (i.e. `cargo check` or `cargo clippy`) while coding. They are not interested in producing an executable, and thus codegen optimizations are of zero help.
+  - Option 5 brings us intraprocess parallelization. It can significantly speed up clean dev builds[^parallel-frontend] -- provided of course that your machine has that enough CPU and memory. That said, personally I have noticed negligible improvement in incremental builds because the parallelized 'analysis' phase is far shorter than that in clean builds.
+  - Option 6 introduces an interesting premise: expanding procedural macros is slow! This solution comes at a tangible cost though, as a release build of a procedural macro crate is considerably slower than a dev build.
+
+[^corrode-blog]: https://corrode.dev/blog/tips-for-faster-rust-compile-times
+[^lattimore-blog]: https://davidlattimore.github.io/posts/2024/02/04/speeding-up-the-rust-edit-build-run-cycle.html . I got to speak to David a few weeks ago, and learned he is hard at work building an [incremental linker](https://github.com/davidlattimore/wild). 
+[^benw-blog]: https://benw.is/posts/how-i-improved-my-rust-compile-times-by-seventy-five-percent
+[^parallel-frontend]: The parallel frontend is still only in the nightly compiler, ostensibly with plans to hit stable rustc in late 2024. More details are [here](https://blog.rust-lang.org/2023/11/09/parallel-rustc.html).
+
+### You're probably spending considerable build time expanding procedural macros
+Procedural macros are Rust 'meta-functions' that modify user-written code. Crudely, `fn procmacro(user_code: string) -> /* output_code */ string`.[^procmacro-summary] Executing this meta-function is called macro expansion, and `macro_expand_crate` (which you see in the profile at the top of this blog) is the very first step to compilation. Importantly, if you change a *single line* in your crate, *all* macros in that crate are expanded from scratch. Unlike the rest of the compiler,[^the-compiler-caches] there is no caching here.
+
+Why should you care? You likely don't write (m)any procedural macros yourself, but I suspect they are used extensively in your crate dependencies. A few popular macro-heavy crates include `serde`, `tokio`, `sqlx`, `actix-web`, `leptos`, `wasm-bindgen`, `async-[attributes / graphql / trait / stripe]`. Long build times are a common talking point on these crates' GitHub repositories: [^sqlx-slow-build] [^asyncgraphql-slow-build] [^asyncstripe-slow-build]
+![Resigned to slow sqlx macro expansion](/slow_sqlx_macros.png)
+
+**tldr;** slow macro expansion from your dependencies means slow builds for you.
+
+[^procmacro-summary]: This is technically incorrect for a few reasons. Namely, inputs and outputs are `TokenStream` objects, which are more like ASTs than raw strings. Also, attribute procedural macros take two inputs (the attribute itself and the body it is attached to) instead of one. Nevertheless, it is a useful mental model for the more detailed explanation [here](https://doc.rust-lang.org/reference/procedural-macros.html).
+[^the-compiler-caches]: Almost all of the compiler's "frontend" (i.e. before the codegen phase) implements caching to drive incremental compilation. See more details on query-driven compilation [here](https://rustc-dev-guide.rust-lang.org/query.html).
+[^sqlx-slow-build]: https://github.com/launchbadge/sqlx/issues/1096
+[^asyncgraphql-slow-build]: https://github.com/async-graphql/async-graphql/issues/1287
+[^asyncstripe-slow-build]: https://github.com/arlyon/async-stripe/discussions/77
+
+## Caching macro expansion: Up to 40% faster Rust incremental builds
+There are many clever individuals and teams dedicated to holistically improving the Rust compiler. These days, the best improvements yield 1-2% faster builds on benchmarks.[^nethercote-blog]. Unfortunately, a 1-2% improvement doesn't mean much to a frustrated developer.
+
+### My approach: Project-specific focus on incremental build time 
+My approach, which is now the basis for CodeRemote, is necessarily different:
+1. I am singularly focused on shortening the edit-compile-run cycle. Goal: Make incremental dev builds fast.
+2. I want big (double-digit %) improvements on a few projects, not small improvements on many. Approach: Profile a project with painfully long incremental builds, understand the cause for slowness, fix it.
+
+[^nethercote-blog]: Nicholas Nethercote has written several excellent blogs summarizing recent compiler improvements. In those blogs, he also has demonstrated some of the best tools to measure Rust compiler performance. His March 2024 blog is [here](https://nnethercote.github.io/2024/03/06/how-to-speed-up-the-rust-compiler-in-march-2024.html).
+
+### Methods: Speeding up macro expansion
+Early on, I saw several projects dependent on `async-graphql` and `sqlx` complain about slow build times. After profiling them, I found that macro expansion would sometimes take more than a third of that time. From my reading, I speculated that this was a relatively under-optimized part of the compiler.
+
+#### Approaches considered and abandoned
+<details>
+  <summary><b>Click to read my attempts before caching macro expansion.</b></summary>
+
+I evaluated (and ultimately abandoned) a few approaches:
+1. Parallelize macro expansion: The compiler currently loops over macro invocations repeatedly until all names are resolved and nested macros are expanded from the inside out. While I believe parallelization is doable, nested macros and name resolution pose serious challenges to a naive approach. 
+2. Apply the Watt runtime[^watt] i.e. compile procedural macros to WebAssembly: I quickly realized that while Watt saves users from needing to compile procedural macros, it does not help with execution of those macros during expansion (and in fact incurs a slight performance penalty). Nevertheless, Watt pushed me to focus on macros modelable as pure deterministic functions.
+3. Cache the AST and "push" changes: Assuming small edits between builds, the AST (Abstract Syntax Tree) that represents a crate changes very slightly. Nevertheless, the compiler currently lexes and parses and expands from scratch.[^technical-macro-exp] My vague idea here was to cache the AST from the last run, identify the code changes in the new version, and push those AST changes to the previous crate's AST. This felt like it was on the right track but the devil is in the details:
+    - How would I represent "code changes"?
+    - What if the new AST is vastly different from the old one?
+    - Are parsing and lexing even time-consuming i.e. do we benefit from caching them?
+</details>
+
+[^watt]: David Tolnay is the author of Watt. See more details [here](https://github.com/dtolnay/watt). 
+[^technical-macro-exp]: During macro expansion, a macro transforms an input AST into an output AST. This AST is then inserted into the crate's larger AST.
+
+#### Caching procedural macro expansion
+Finally, I landed at caching procedural macro expansion. The core idea is simple. Procedural macros take as input a `TokenStream` (representing an AST) and output another `TokenStream`. We cache this mapping from our current build; if the input is unchanged in our next build, we reuse that output instead of recomputing it.
+
+This is far superior to "using release builds of procedural macro crates" [mentioned before](#existing-compiler-options-offer-limited-help-with-incremental-build-times). For the vast majority of macros, instead of doing the same work faster, we are doing *zero work*.
+
+##### Side note: Side effects
+Rust's procedural macros are not necessarily deterministic "pure" functions.[^hn-side-effects] In other words, expanding the macro with the same input can yield a different output. The commonly used `include_bytes` macro, for example, reads the contents of a file. Even if the filename stays the same, its output will clearly change if the *contents* of that file change.
+
+In practice, however, the vast majority of macros are in fact pure. This is the basis of the Watt runtime [mentioned before](#approaches-considered-and-abandoned) and also the basis of periodic discussions on "const" proc macros.[^const-proc-macro]
+
+[^const-proc-macro]: https://internals.rust-lang.org/t/const-fn-proc-macros/14714
+[^hn-side-effects]: https://news.ycombinator.com/item?id=29302382
+
+##### Augmenting the compiler
+We needed to augment the compiler in several ways to support macro expansion caching. In particular, we needed to be able to do the following:
+  1. Skip pulling a macro from cache. As mentioned above, you may want to avoid caching some macro expansions in case they have side effects. I simply allow specifying these in an environment variable. In practice, I have yet to encounter a crate where I have needed to skip more than 3 macros.
+  2. Hash macro (bang, attribute, and derive) invocations. Our cache is a hashmap mapping invocation hashes to the expansions. As in the other areas of the compiler, we need to take care to use `StableHash`es, so that the hashes are consistent across runs. On this, we avoided hashing `span`s (which represent positions in code) where possible because ideally our cache remains valid even if a new line of code pushes the code below it down a line.
+  3. Handle edge cases: duplicate invocation hashes, interpolated tokens[^interpolated-tokens], and nested macros. All of these poses challenges to computing unique invocation hashes and consistent output ASTs. We typically flattened ASTs where possible and dropped un-cacheable ones where not.
+  4. Serialize macro output. Luckily, we were able to leverage a lot of the data structures in place for incremental builds downstream in the compiler. Still, we needed to spin our own serialization mechanism since we are newly caching `TokenStreams` and ASTs.
+
+[^interpolated-tokens]: Interpolated tokens are embedded AST nodes. The [source code](https://github.com/rust-lang/rust/blob/1.76.0/compiler/rustc_ast/src/token.rs#L317) itself deems them a "very strange" concept that the compiler team would "like to get rid of".
+
+#### Code snippet
+If that felt vague, attached here is a code snippet of my core logic.
+<details>
+  <summary><b>Click to expand a snippet from my actual code</b></summary>
+
+```rust
+pub fn expand_crate(&mut self, krate: ast::Crate) -> ast::Crate {
+  // ... Truncated ... //
+  let (mut krate_ast_fragment_with_placeholders, mut invocations) =
+    self.collect_invocations(AstFragment::Crate(krate), &[]);
+  
+  loop {
+    let (invoc, ext) = invocations.pop();
+    // Gather newly discovered nested invocations and expanded fragments
+    let (expanded_fragment, new_invocations) = self.expand_invoc(invoc, &ext.kind);
+    invocations.extend(new_invocations.into_iter().rev());
+  }
+
+  // Insert expanded fragments into the crate AST's placeholders
+  // let expanded_krate = ...
+  let bytes = on_disk_cache.serialize(
+    file_encoder,
+    &self.invoc_hash_and_expanded_stream
+  );
+  info!(
+    "Cached {} bytes of macro expansion cache (holding {} invocations)",
+    bytes,
+    self.invoc_hash_and_expanded_stream.len()
+  );
+  expanded_krate
+}
+
+fn expand_macro_invoc(
+  &mut self,
+  invoc: Invocation, // holds macro invocation context
+  ext: &SyntaxExtensionKind, // holds the procedural macro callable
+) -> TokenStream {
+  // ... Truncated ... //
+  let invoc_hash =
+    self.disk_cache.as_ref().and_then(|_| self.hash_item_no_spans(&invoc.kind));
+  let expander = ext.get_macro();
+  let tok_result: TokenStream = {
+    // 1. Perform lookup of the macro invocation hash in our new macro cache
+    if !self.should_skip_cache()
+        && let Some(cached_stream) =
+            self.disk_cache
+                .as_ref()
+                .unwrap()
+                .try_load_query_result::<TokenStream>(invoc_hash)
+    {
+        // 2a. Pull from cache if it exists
+        debug!("Pulled from cache with hash {:?}!", invoc_hash);
+        cached_stream
+    } else {
+        // 2b. Else compute macro expansion from the proc macro crate
+        debug!("Not found in cache with hash {:?}!", invoc_hash);
+        expander.expand(self.cx, span, mac.args.tokens.clone())
+    }
+  };
+  // 3. Cache macro invocation hash with expanded TokenStream
+  self.invoc_hash_and_expanded_stream.push((invoc_hash, tok_result.clone()));
+
+  tok_result
+}
+```
+</details>
+
+### Results
+I have profiled my modded compiler against the default compiler, on several real-life Rust projects. Full details are in my
+<a href="https://github.com/coderemotedotdev/rustc-profiles" target="_blank">rustc-profiles repo</a>.
+
+ Below is a snapshot of those results (as of Mar 16, 2024).
+| Project      | speed up % | Default build time (incremental) | Modded build time (incremental) | Detailed analysis?
+| ------------- | ------------- | ------------- | ------------- | ------------- |
+| <a href="https://hedgehog.app" target="_blank">hedgehog</a> | 40% | 19.3 s | 11.7 s | <a href="https://github.com/coderemotedotdev/rustc-profiles/tree/main/hedgehog" target="_blank">In rustc-profiles</a>
+| <a href="https://github.com/paritytech/polkadot-sdk" target="_blank">polkadot-sdk</a> | 35% | 30 s | 19 s | <a href="https://github.com/coderemotedotdev/rustc-profiles/tree/main/polkadot-sdk" target="_blank">In rustc-profiles</a>
+| <a href="https://github.com/SorellaLabs/brontes" target="_blank">brontes</a> | 25% | 10.7 s | 8.0 s | <a href="https://github.com/coderemotedotdev/rustc-profiles/tree/main/brontes" target="_blank">In rustc-profiles</a>
+|  <a href="https://github.com/graphprotocol/graph-node" target="_blank">graph-node</a> | 21% | 6.3 s | 5.0 s | <a href="https://github.com/coderemotedotdev/rustc-profiles/tree/main/graph-node" target="_blank">In rustc-profiles</a>
+|  <a href="https://github.com/vectordotdev/vector" target="_blank">vector</a> | 11% | 18.4 s | 16.4 s | <a href="https://github.com/vectordotdev/vector/discussions/19930" target="_blank">In vector's GitHub discussion</a>
+
+#### Proof by picture
+As you can see in this `rustc` profile, we are expanding only the procedural macros that we modified. 
+![Rustc optimization one-pager](/rustc_optimization_onepager.png)
+You can find the full-sized PDF [here](https://github.com/coderemotedotdev/rustc-profiles/blob/main/hedgehog/hedgehog_compiler_comparison_report.pdf).
+
+<br/>
+---
+<br /> 
+
+Now, I love sword fights on swivel chairs as much as the next guy ...
+
+<div class="row" padding="1rem">
+  <div class="column">
+    <img src={"https://imgs.xkcd.com/comics/compiling.png"} alt="Image alt" />
+  </div>
+  <div/>
+  <div class="column">
+    <div className="ml-embedded" data-form="6EiOYZ"></div>
+  </div>
+</div>
+
+But if you want to return minutes of your life with every compile, check out what we're building at CodeRemote.
+
+~ Kapil

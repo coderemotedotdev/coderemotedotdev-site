@@ -29,3 +29,5 @@ All commands are run from the root of the project:
 | `npm run build`        | Build your production site to `./dist/`            |
 | `npm run preview`      | Preview your build locally, before deploying       |
 
+## Blog
+The blog under `src/content` is licensed under CC BY-NC-ND 4.0

@@ -13,12 +13,11 @@ import { Divider } from "../components/Divider";
 import { Footer } from "../components/Footer.jsx";
 import { SignUpForm } from "../components/SignUpForm.jsx";
 import { ScrollUpButton } from "../components/ScrollUpButton";
-import "../styles/Theme.css";
-import "../styles/Diagonals.css";
+import { SITE_TITLE, SITE_DESCRIPTION } from '../consts';
 
 ---
 
-<Layout title="CodeRemote">
+<Layout title={SITE_TITLE} description={SITE_DESCRIPTION}>
   <Navbar client:load />
   <Hero client:load />
   <Features1 client:load />
