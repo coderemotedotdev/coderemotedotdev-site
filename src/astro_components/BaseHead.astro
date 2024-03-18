@@ -47,10 +47,6 @@ const { title, description, image = '/main_logo.png' } = Astro.props;
 	import { logEvent, getAnalytics } from "firebase/analytics";
 
 	const analytics = getAnalytics(app);
-	logEvent(analytics, 'screen_view', {
-		firebase_screen: canonicalURL,
-		firebase_screen_class: "sitepage"
-	});
 </script>
 
 <!-- Open Graph / Facebook -->
